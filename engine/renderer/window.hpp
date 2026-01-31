@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 
+#include "glad/gl.h"
 #include "GLFW/glfw3.h"
 
 class Window{
@@ -11,6 +12,8 @@ public:
   ~Window() {}
 
   void init(uint32_t width, uint32_t height, std::string title);
+  void swapBuffers();
+  bool shouldClose();
   void pollEvents();
   void shutdown();
 
