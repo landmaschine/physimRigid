@@ -1,7 +1,17 @@
-#include "core/core.hpp" 
+#include "entt/entt.hpp"
+#include "renderer/renderSystem.hpp"
+#include "renderer/window.hpp"
+#include "core/core.hpp"
+#include "Input/input.hpp"
 
 int main(){
-  Core core;
+  entt::registry reg;
+
+  Window window;
+  RendererSystem renderer(window);
+  InputSystem input(window);
+
+  Core core(reg, window, renderer, input);
   core.init();
   core.run();
 

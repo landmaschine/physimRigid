@@ -10,6 +10,6 @@ struct RenderComponent {
 
 };
 
-struct RigidBody {
+struct RigidBodyComponent {
 
 };

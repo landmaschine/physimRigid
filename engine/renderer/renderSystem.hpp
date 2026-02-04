@@ -1,18 +1,23 @@
 #pragma once
-#include <cstdint>
 
-class RendererSystem {
+#include "entt/entity/fwd.hpp"
+class Window;
+
+class IRenderSystem {
 public:
-  RendererSystem() = default;
+  ~IRenderSystem() = default;
+  virtual void render(entt::registry& reg) = 0;
+};
+
+class RendererSystem : IRenderSystem {
+public:
+  RendererSystem(Window& window) : m_window(window) {}
   ~RendererSystem() {}
 
   void init();
+  void render(entt::registry& reg) override;
   void shutdown();
 
-  void setViewport();
-
 private:
-  uint32_t width;
-  uint32_t height;
-
+  Window& m_window;
 };

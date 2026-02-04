@@ -1,11 +1,8 @@
 #include "window.hpp"
 
+#include "glad/gl.h"
 #include "GLFW/glfw3.h"
 #include "logger/logger.hpp"
-
-void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
-  glViewport(0, 0, width, height);
-}
 
 void Window::init(uint32_t width, uint32_t height, std::string title) {
   m_width = width;
@@ -31,14 +28,6 @@ void Window::init(uint32_t width, uint32_t height, std::string title) {
 
   glfwMakeContextCurrent(m_glfwWindow);
 
-  if(!gladLoadGL(glfwGetProcAddress)) {
-    ERRLOG("Failed to init GLAD");
-    std::exit(-1);
-  }
-
-  glViewport(0, 0, m_width, m_height);
-
-  glfwSetFramebufferSizeCallback(m_glfwWindow, framebuffer_size_callback);
 }
 
 void Window::pollEvents() {
