@@ -1,5 +1,6 @@
 file(GLOB_RECURSE ENGINE_SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/*.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/*.hpp
   ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp
 )
 
@@ -13,6 +14,7 @@ target_include_directories(engine
 target_link_libraries(engine
   PUBLIC
     glfw
+    glad
     glm
     EnTT::EnTT
     imgui

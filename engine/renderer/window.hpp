@@ -6,14 +6,14 @@ struct GLFWwindow;
 
 class Window{
 public:
-  Window() = default;
+  Window(uint32_t width, uint32_t height, std::string title) {
+    init(width, height, title);
+  }
   ~Window() {}
 
-  void init(uint32_t width, uint32_t height, std::string title);
   void swapBuffers();
   bool shouldClose();
   void pollEvents();
-  void shutdown();
 
   GLFWwindow* getHandle() {
     return m_glfwWindow;
@@ -21,6 +21,10 @@ public:
 
   uint32_t width() { return m_width; }
   uint32_t height() { return m_height; }
+
+private:
+  void init(uint32_t width, uint32_t height, std::string title);
+  void shutdown();
 
 private:
   uint32_t m_height;

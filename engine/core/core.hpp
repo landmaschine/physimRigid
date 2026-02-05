@@ -13,14 +13,18 @@ public:
        Window& window,
        RendererSystem& renderer,
        InputSystem& input) 
-    : m_registry(registry), m_window(window), m_renderSystem(renderer), m_input(input) {};
+    : m_registry(registry), m_window(window), m_renderSystem(renderer), m_input(input) {
+      m_running = true;
+    };
 
-  ~Core() = default;
-
-  void init();
-  void shutdown();
+  ~Core() {
+    shutdown();
+  };
 
   void run();
+
+private:
+  void shutdown();
 
 private:
   bool m_running = false;

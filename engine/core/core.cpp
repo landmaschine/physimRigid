@@ -4,13 +4,6 @@
 #include "renderer/renderSystem.hpp"
 #include "Input/input.hpp"
 
-void Core::init() {
-  m_window.init(800, 600, "RigidSim");
-  m_renderSystem.init();
-
-  m_running = true;
-}
-
 void Core::shutdown() {
 
 }

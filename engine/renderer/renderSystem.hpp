@@ -1,23 +1,30 @@
 #pragma once
 
 #include "entt/entity/fwd.hpp"
+#include <memory>
+
 class Window;
+class Shader;
 
 class IRenderSystem {
 public:
-  ~IRenderSystem() = default;
+  virtual ~IRenderSystem() = default;
   virtual void render(entt::registry& reg) = 0;
 };
 
-class RendererSystem : IRenderSystem {
+class RendererSystem : public IRenderSystem {
 public:
-  RendererSystem(Window& window) : m_window(window) {}
-  ~RendererSystem() {}
+  RendererSystem(Window& window);
+  ~RendererSystem() override;
 
-  void init();
   void render(entt::registry& reg) override;
+
+private:
+  void init();
   void shutdown();
+  void initEntityBuffers(entt::registry& reg);
 
 private:
   Window& m_window;
+  std::unique_ptr<Shader> m_shader;
 };
