@@ -28,6 +28,7 @@ private:
 
 private:
   bool m_running = false;
+  double dt = 0;
 
   entt::registry& m_registry;
   Window& m_window;

@@ -33,9 +33,25 @@ void RendererSystem::init() {
 
   m_shader = std::make_unique<Shader>();
   if (!m_shader->load("shaders/basic.vert", "shaders/basic.frag")) {
-    ERRLOG("Failed to load shaders");
+    ERRLOG("Failed to load basic shaders");
     std::exit(-1);
   }
+
+  m_gridShader = std::make_unique<Shader>();
+  if (!m_gridShader->load("shaders/grid.vert", "shaders/grid.frag")) {
+    ERRLOG("Failed to load grid shaders");
+    std::exit(-1);
+  }
+
+  glGenVertexArrays(1, &m_gridVAO);
+  glGenBuffers(1, &m_gridVBO);
+  glBindVertexArray(m_gridVAO);
+  glBindBuffer(GL_ARRAY_BUFFER, m_gridVBO);
+  
+  glBufferData(GL_ARRAY_BUFFER, 6 * 2 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+  glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+  glEnableVertexAttribArray(0);
+  glBindVertexArray(0);
 
   glEnable(GL_BLEND);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -72,9 +88,42 @@ void RendererSystem::initEntityBuffers(entt::registry& reg) {
   }
 }
 
+void RendererSystem::renderGrid() {
+  float aspect = static_cast<float>(m_window.width()) / static_cast<float>(m_window.height());
+  float worldHeight = 10.0f;
+  float worldWidth  = worldHeight * aspect;
+  float hw = worldWidth  / 2.0f;
+  float hh = worldHeight / 2.0f;
+
+  glm::mat4 projection = glm::ortho(-hw, hw, -hh, hh, -1.0f, 1.0f);
+
+  float quad[] = {
+    -hw, -hh,
+     hw, -hh,
+     hw,  hh,
+    -hw, -hh,
+     hw,  hh,
+    -hw,  hh
+  };
+  glBindBuffer(GL_ARRAY_BUFFER, m_gridVBO);
+  glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(quad), quad);
+
+  m_gridShader->use();
+  m_gridShader->setMat4("u_projection", projection);
+  m_gridShader->setFloat("u_gridSpacing", gridSpacing);
+  m_gridShader->setFloat("u_lineWidth", gridLineWidth);
+  m_gridShader->setVec3("u_gridColor", glm::vec3(0.35f, 0.35f, 0.35f));
+
+  glBindVertexArray(m_gridVAO);
+  glDrawArrays(GL_TRIANGLES, 0, 6);
+  glBindVertexArray(0);
+}
+
 void RendererSystem::render(entt::registry& reg) {
-  glClearColor(0.1f, 0.1f, 0.12f, 1.0f);
+  glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT);
+
+  renderGrid();
 
   initEntityBuffers(reg);
 
@@ -98,10 +147,11 @@ void RendererSystem::render(entt::registry& reg) {
     model = glm::translate(model, glm::vec3(transform.pos, 0.0f));
 
     m_shader->setMat4("u_transform", model);
-    m_shader->setVec3("u_color", render.color);
+    m_shader->setVec3("u_color", glm::vec3(1.0f, 1.0f, 1.0f));
 
     glBindVertexArray(render.VAO);
-    glDrawArrays(GL_TRIANGLE_FAN, 0, render.vertexCount);
+    glLineWidth(1.5f);
+    glDrawArrays(GL_LINE_LOOP, 0, render.vertexCount);
   }
 
   glBindVertexArray(0);
@@ -109,4 +159,7 @@ void RendererSystem::render(entt::registry& reg) {
 
 void RendererSystem::shutdown() {
   m_shader.reset();
+  m_gridShader.reset();
+  if (m_gridVAO) { glDeleteVertexArrays(1, &m_gridVAO); m_gridVAO = 0; }
+  if (m_gridVBO) { glDeleteBuffers(1, &m_gridVBO); m_gridVBO = 0; }
 }
