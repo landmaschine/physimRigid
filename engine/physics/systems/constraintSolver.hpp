@@ -8,27 +8,6 @@
 #include <cmath>
 #include <algorithm>
 
-// ═══════════════════════════════════════════════════════════════
-//  Sequential Impulse Constraint Solver
-//
-//  Implements the same solver architecture as Box2D / PhysX:
-//
-//   1. Integrate velocities  (v += F/m * dt, apply damping)
-//   2. Pre-step contacts     (effective masses, bias, warm-start)
-//   3. Velocity iterations   (normal + friction impulses, N iters)
-//   4. Integrate positions   (x += v * dt)
-//   5. Position correction   (Nonlinear Gauss-Seidel, M iters)
-//   6. Clear forces
-//
-//  Key stability features:
-//   • Accumulated impulse clamping (prevents oscillation)
-//   • Feature-based warm-starting (via ContactManager)
-//   • Baumgarte velocity bias for restitution
-//   • Separate position correction (no velocity pollution)
-//   • Coulomb friction with proper cone clamping
-//   • Mouse grab solved interleaved with contacts
-// ═══════════════════════════════════════════════════════════════
-
 class ConstraintSolverSystem : public PhysicsSystem {
 public:
   int   velocityIterations = 10;

@@ -7,18 +7,6 @@
 #include "components/physics_components.hpp"
 #include <vector>
 
-// ═══════════════════════════════════════════════════════════════
-//  Collision Detection System
-//
-//  Pipeline:
-//    1. Compute AABBs for all collidable bodies
-//    2. Sort-and-sweep broadphase → candidate pairs
-//    3. SAT + clipping narrowphase → ContactConstraints
-//    4. Feed into ContactManager for persistent warm-starting
-//
-//  The ContactManager survives across frames and matches contact
-//  points by ContactFeature for impulse warm-starting.
-// ═══════════════════════════════════════════════════════════════
 
 class CollisionDetectionSystem : public PhysicsSystem {
 public:
