@@ -1,38 +1,36 @@
 #pragma once
 
 #include "entt/entity/fwd.hpp"
-#include <memory>
+#include <bgfx/bgfx.h>
+#include <glm/glm.hpp>
 
 class Window;
-class Shader;
 
-class IRenderSystem {
-public:
-  virtual ~IRenderSystem() = default;
-  virtual void render(entt::registry& reg) = 0;
-};
-
-class RendererSystem : public IRenderSystem {
+class RendererSystem {
 public:
   RendererSystem(Window& window);
-  ~RendererSystem() override;
+  ~RendererSystem();
 
-  void render(entt::registry& reg) override;
-
-  float gridSpacing  = 1.0f;
-  float gridLineWidth = 0.008f;
+  void render(entt::registry& reg);
 
 private:
   void init();
   void shutdown();
-  void initEntityBuffers(entt::registry& reg);
-  void renderGrid();
+
+  void renderSprites(entt::registry& reg, const glm::mat4& viewProj);
 
 private:
   Window& m_window;
-  std::unique_ptr<Shader> m_shader;
-  std::unique_ptr<Shader> m_gridShader;
 
-  unsigned int m_gridVAO = 0;
-  unsigned int m_gridVBO = 0;
+  bgfx::VertexLayout m_spriteLayout;
+
+  bgfx::ProgramHandle m_spriteProgram = BGFX_INVALID_HANDLE;
+
+  static constexpr bgfx::ViewId kViewGrid    = 0;
+  static constexpr bgfx::ViewId kViewSprites = 1;
+
+  static constexpr uint32_t kMaxSprites      = 4096;
+  static constexpr uint32_t kVertsPerSprite  = 4;
+  static constexpr uint32_t kIndicesPerSprite = 6;
+  static constexpr uint32_t kCircleSegments  = 32;
 };

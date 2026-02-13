@@ -9,9 +9,8 @@ public:
   Window(uint32_t width, uint32_t height, std::string title) {
     init(width, height, title);
   }
-  ~Window() {}
+  ~Window() { shutdown(); }
 
-  void swapBuffers();
   bool shouldClose();
   void pollEvents();
 
@@ -19,8 +18,14 @@ public:
     return m_glfwWindow;
   }
 
-  uint32_t width() { return m_width; }
-  uint32_t height() { return m_height; }
+  void* getNativeHandle() const;
+
+  void* getNativeDisplayHandle() const;
+
+  uint32_t width() const { return m_width; }
+  uint32_t height() const { return m_height; }
+
+  void setSize(uint32_t w, uint32_t h) { m_width = w; m_height = h; }
 
 private:
   void init(uint32_t width, uint32_t height, std::string title);
@@ -29,6 +34,6 @@ private:
 private:
   uint32_t m_height;
   uint32_t m_width;
-  GLFWwindow* m_glfwWindow;
+  GLFWwindow* m_glfwWindow = nullptr;
   std::string m_title;
 };

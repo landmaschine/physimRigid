@@ -1,8 +1,16 @@
 #include "window.hpp"
 
-#include "glad/gl.h"
+#define GLFW_INCLUDE_NONE
 #include "GLFW/glfw3.h"
 #include "logger/logger.hpp"
+
+#ifdef _WIN32
+#  define GLFW_EXPOSE_NATIVE_WIN32
+#  include <GLFW/glfw3native.h>
+#  ifdef ERROR
+#    undef ERROR
+#  endif
+#endif
 
 void Window::init(uint32_t width, uint32_t height, std::string title) {
   m_width = width;
@@ -14,9 +22,7 @@ void Window::init(uint32_t width, uint32_t height, std::string title) {
     std::exit(-1);
   }
 
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
-  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+  glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
   glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
   m_glfwWindow = glfwCreateWindow(m_width, m_height, m_title.c_str(), nullptr, nullptr);
@@ -26,23 +32,33 @@ void Window::init(uint32_t width, uint32_t height, std::string title) {
     std::exit(1);
   }
 
-  glfwMakeContextCurrent(m_glfwWindow);
-
+  glfwSetWindowUserPointer(m_glfwWindow, this);
 }
 
 void Window::pollEvents() {
   glfwPollEvents();
 }  
 
-void Window::swapBuffers() {
-  glfwSwapBuffers(m_glfwWindow);
-}
-
 bool Window::shouldClose() {
   return glfwWindowShouldClose(m_glfwWindow);
 }
 
+void* Window::getNativeHandle() const {
+#ifdef _WIN32
+  return glfwGetWin32Window(m_glfwWindow);
+#else
+  return nullptr;
+#endif
+}
+
+void* Window::getNativeDisplayHandle() const {
+  return nullptr; 
+}
+
 void Window::shutdown() {
-  glfwDestroyWindow(m_glfwWindow);
+  if (m_glfwWindow) {
+    glfwDestroyWindow(m_glfwWindow);
+    m_glfwWindow = nullptr;
+  }
   glfwTerminate();
 }

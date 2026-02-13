@@ -1,19 +1,42 @@
 #include "renderSystem.hpp"
 
 #include "entt/entt.hpp"
-#include "glad/gl.h"
+#include <bgfx/bgfx.h>
+#include <bgfx/platform.h>
+#include <bx/math.h>
+
+#define GLFW_INCLUDE_NONE
 #include "GLFW/glfw3.h"
-#include "glm/ext/matrix_clip_space.hpp"
-#include "glm/ext/matrix_transform.hpp"
+#include "glm/gtc/type_ptr.hpp"
 
 #include "logger/logger.hpp"
 #include "renderer/window.hpp"
-#include "renderer/shader.hpp"
 #include "components/components.hpp"
 
+#include <algorithm>
+#include <cstring>
+
+#include "vs_basic.sc.bin.h"
+#include "fs_basic.sc.bin.h"
+
 static void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
-  glViewport(0, 0, width, height);
+  auto* win = static_cast<Window*>(glfwGetWindowUserPointer(window));
+  if (win) {
+    win->setSize(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+    bgfx::reset(static_cast<uint32_t>(width), static_cast<uint32_t>(height),
+                BGFX_RESET_VSYNC);
+  }
 }
+
+static bgfx::ShaderHandle loadShader(const uint8_t* data, uint32_t size) {
+  const bgfx::Memory* mem = bgfx::copy(data, size);
+  return bgfx::createShader(mem);
+}
+
+struct SpriteVertex {
+  float x, y;
+  float r, g, b, a;
+};
 
 RendererSystem::RendererSystem(Window& window) : m_window(window) {
   init();
@@ -24,142 +47,269 @@ RendererSystem::~RendererSystem() {
 }
 
 void RendererSystem::init() {
-  if (!gladLoadGL(glfwGetProcAddress)) {
-    ERRLOG("Failed to init GLAD");
+  bgfx::renderFrame();
+
+  bgfx::Init bgfxInit;
+  bgfxInit.type = bgfx::RendererType::Vulkan;
+
+  bgfxInit.platformData.nwh = m_window.getNativeHandle();
+  bgfxInit.platformData.ndt = m_window.getNativeDisplayHandle();
+
+  bgfxInit.resolution.width  = m_window.width();
+  bgfxInit.resolution.height = m_window.height();
+  bgfxInit.resolution.reset  = BGFX_RESET_VSYNC;
+
+  if (!bgfx::init(bgfxInit)) {
+    ERRLOG("Failed to initialise bgfx");
     std::exit(-1);
   }
+
+  LOG("bgfx initialised renderer: ",
+      bgfx::getRendererName(bgfx::getRendererType()));
 
   glfwSetFramebufferSizeCallback(m_window.getHandle(), framebuffer_size_callback);
 
-  m_shader = std::make_unique<Shader>();
-  if (!m_shader->load("shaders/basic.vert", "shaders/basic.frag")) {
-    ERRLOG("Failed to load basic shaders");
-    std::exit(-1);
+  m_spriteLayout
+    .begin()
+    .add(bgfx::Attrib::Position,  2, bgfx::AttribType::Float)
+    .add(bgfx::Attrib::Color0,    4, bgfx::AttribType::Float, true)
+    .end();
+
+  {
+    bgfx::ShaderHandle vs = loadShader(vs_basic_sc_bin_h, sizeof(vs_basic_sc_bin_h));
+    bgfx::ShaderHandle fs = loadShader(fs_basic_sc_bin_h, sizeof(fs_basic_sc_bin_h));
+    m_spriteProgram = bgfx::createProgram(vs, fs, true);
   }
-
-  m_gridShader = std::make_unique<Shader>();
-  if (!m_gridShader->load("shaders/grid.vert", "shaders/grid.frag")) {
-    ERRLOG("Failed to load grid shaders");
-    std::exit(-1);
-  }
-
-  glGenVertexArrays(1, &m_gridVAO);
-  glGenBuffers(1, &m_gridVBO);
-  glBindVertexArray(m_gridVAO);
-  glBindBuffer(GL_ARRAY_BUFFER, m_gridVBO);
-  
-  glBufferData(GL_ARRAY_BUFFER, 6 * 2 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
-  glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
-  glEnableVertexAttribArray(0);
-  glBindVertexArray(0);
-
-  glEnable(GL_BLEND);
-  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  bgfx::setViewClear(kViewGrid, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH,
+                      0x000000ff, 1.0f, 0);
 }
 
-void RendererSystem::initEntityBuffers(entt::registry& reg) {
-  auto view = reg.view<RigidBodyComponent, RenderComponent>();
-  for (auto entity : view) {
-    auto& render = view.get<RenderComponent>(entity);
-    if (render.initialized) continue;
 
-    auto& body = view.get<RigidBodyComponent>(entity);
-    if (!body.shape) continue;
+void RendererSystem::renderSprites(entt::registry& reg,
+                                    const glm::mat4& viewProj) {
+  auto spriteView = reg.view<TransformComponent, SpriteComponent>();
+  if (spriteView.size_hint() == 0) return;
 
-    auto vertices = body.shape->getVertices();
+  enum class ShapeType { Box, Circle, Convex };
 
-    glGenVertexArrays(1, &render.VAO);
-    glGenBuffers(1, &render.VBO);
-
-    glBindVertexArray(render.VAO);
-    glBindBuffer(GL_ARRAY_BUFFER, render.VBO);
-    glBufferData(GL_ARRAY_BUFFER,
-                 static_cast<GLsizeiptr>(vertices.size() * sizeof(float)),
-                 vertices.data(),
-                 GL_STATIC_DRAW);
-
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-
-    glBindVertexArray(0);
-
-    render.vertexCount = static_cast<int>(body.shape->getVertexCount());
-    render.initialized = true;
-  }
-}
-
-void RendererSystem::renderGrid() {
-  float aspect = static_cast<float>(m_window.width()) / static_cast<float>(m_window.height());
-  float worldHeight = 10.0f;
-  float worldWidth  = worldHeight * aspect;
-  float hw = worldWidth  / 2.0f;
-  float hh = worldHeight / 2.0f;
-
-  glm::mat4 projection = glm::ortho(-hw, hw, -hh, hh, -1.0f, 1.0f);
-
-  float quad[] = {
-    -hw, -hh,
-     hw, -hh,
-     hw,  hh,
-    -hw, -hh,
-     hw,  hh,
-    -hw,  hh
+  struct DrawCmd {
+    const TransformComponent* tf;
+    const SpriteComponent*    sp;
+    ShapeType                 shape;
+    float                     circleRadius;
+    const std::vector<glm::vec2>* convexVerts;
   };
-  glBindBuffer(GL_ARRAY_BUFFER, m_gridVBO);
-  glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(quad), quad);
 
-  m_gridShader->use();
-  m_gridShader->setMat4("u_projection", projection);
-  m_gridShader->setFloat("u_gridSpacing", gridSpacing);
-  m_gridShader->setFloat("u_lineWidth", gridLineWidth);
-  m_gridShader->setVec3("u_gridColor", glm::vec3(0.35f, 0.35f, 0.35f));
+  std::vector<DrawCmd> drawList;
+  drawList.reserve(spriteView.size_hint());
 
-  glBindVertexArray(m_gridVAO);
-  glDrawArrays(GL_TRIANGLES, 0, 6);
-  glBindVertexArray(0);
+  for (auto e : spriteView) {
+    DrawCmd cmd;
+    cmd.tf          = &spriteView.get<TransformComponent>(e);
+    cmd.sp          = &spriteView.get<SpriteComponent>(e);
+    cmd.circleRadius = 0.0f;
+    cmd.convexVerts  = nullptr;
+
+    if (auto* cc = reg.try_get<CircleCollider>(e)) {
+      cmd.shape        = ShapeType::Circle;
+      cmd.circleRadius = cc->radius;
+    } else if (auto* pc = reg.try_get<ConvexCollider>(e)) {
+      cmd.shape       = ShapeType::Convex;
+      cmd.convexVerts = &pc->vertices;
+    } else {
+      cmd.shape = ShapeType::Box;
+    }
+
+    drawList.push_back(cmd);
+  }
+
+  std::sort(drawList.begin(), drawList.end(),
+            [](const DrawCmd& a, const DrawCmd& b) {
+              return a.sp->sortOrder < b.sp->sortOrder;
+            });
+
+  uint32_t totalVerts   = 0;
+  uint32_t totalIndices = 0;
+
+  for (const auto& cmd : drawList) {
+    switch (cmd.shape) {
+      case ShapeType::Circle:
+        totalVerts   += kCircleSegments + 1;
+        totalIndices += kCircleSegments * 3;  
+        break;
+      case ShapeType::Convex:
+        if (cmd.convexVerts && cmd.convexVerts->size() >= 3) {
+          uint32_t n = static_cast<uint32_t>(cmd.convexVerts->size());
+          totalVerts   += n + 1;             
+          totalIndices += n * 3;           
+        }
+        break;
+      case ShapeType::Box:
+        totalVerts   += kVertsPerSprite;
+        totalIndices += kIndicesPerSprite;
+        break;
+    }
+  }
+
+  if (totalVerts == 0) return;
+
+  float viewMtx[16], projMtx[16];
+  bx::mtxIdentity(viewMtx);
+
+  float aspect = static_cast<float>(m_window.width()) /
+                 static_cast<float>(m_window.height());
+
+  float orthoSize = 5.0f;
+  glm::vec2 camPos{0.0f};
+  {
+    auto camView = reg.view<TransformComponent, CameraComponent>();
+    for (auto e : camView) {
+      auto& cam = camView.get<CameraComponent>(e);
+      if (cam.primary) {
+        orthoSize = cam.orthoSize;
+        camPos    = camView.get<TransformComponent>(e).position;
+        break;
+      }
+    }
+  }
+  float hw = orthoSize * aspect;
+  float hh = orthoSize;
+
+  {
+    float tx[16];
+    bx::mtxTranslate(tx, -camPos.x, -camPos.y, 0.0f);
+    std::memcpy(viewMtx, tx, sizeof(viewMtx));
+  }
+  bx::mtxOrtho(projMtx, -hw, hw, -hh, hh,
+               -1.0f, 1.0f, 0.0f, bgfx::getCaps()->homogeneousDepth);
+
+  bgfx::setViewRect(kViewSprites, 0, 0, m_window.width(), m_window.height());
+  bgfx::setViewTransform(kViewSprites, viewMtx, projMtx);
+
+  bgfx::TransientVertexBuffer tvb;
+  bgfx::TransientIndexBuffer  tib;
+
+  if (bgfx::getAvailTransientVertexBuffer(totalVerts, m_spriteLayout) < totalVerts)
+    return;
+  if (bgfx::getAvailTransientIndexBuffer(totalIndices) < totalIndices)
+    return;
+
+  bgfx::allocTransientVertexBuffer(&tvb, totalVerts, m_spriteLayout);
+  bgfx::allocTransientIndexBuffer(&tib, totalIndices);
+
+  auto* verts   = reinterpret_cast<SpriteVertex*>(tvb.data);
+  auto* indices = reinterpret_cast<uint16_t*>(tib.data);
+
+  uint32_t vi = 0;  
+  uint32_t ii = 0; 
+
+  for (const auto& drawCmd : drawList) {
+    const auto& tf = *drawCmd.tf;
+    const auto& sp = *drawCmd.sp;
+
+    float cosR = std::cos(tf.rotation);
+    float sinR = std::sin(tf.rotation);
+
+    auto xform = [&](float lx, float ly) -> SpriteVertex {
+      float rx = cosR * lx - sinR * ly + tf.position.x;
+      float ry = sinR * lx + cosR * ly + tf.position.y;
+      return { rx, ry, sp.color.r, sp.color.g, sp.color.b, sp.color.a };
+    };
+
+    switch (drawCmd.shape) {
+      case ShapeType::Circle: {
+        float r = drawCmd.circleRadius * tf.scale.x;
+        uint16_t centreIdx = static_cast<uint16_t>(vi);
+
+        verts[vi++] = xform(0.0f, 0.0f);
+
+        for (uint32_t s = 0; s < kCircleSegments; ++s) {
+          float angle = 2.0f * 3.14159265f * static_cast<float>(s)
+                        / static_cast<float>(kCircleSegments);
+          verts[vi++] = xform(r * std::cos(angle), r * std::sin(angle));
+        }
+
+        for (uint32_t s = 0; s < kCircleSegments; ++s) {
+          indices[ii++] = centreIdx;
+          indices[ii++] = static_cast<uint16_t>(centreIdx + 1 + s);
+          indices[ii++] = static_cast<uint16_t>(centreIdx + 1 + (s + 1) % kCircleSegments);
+        }
+        break;
+      }
+
+      case ShapeType::Convex: {
+        const auto& pts = *drawCmd.convexVerts;
+        uint32_t n = static_cast<uint32_t>(pts.size());
+        if (n < 3) break;
+
+        uint16_t centreIdx = static_cast<uint16_t>(vi);
+
+        glm::vec2 centroid{0.0f};
+        for (const auto& p : pts) centroid += p;
+        centroid /= static_cast<float>(n);
+
+        verts[vi++] = xform(centroid.x * tf.scale.x,
+                            centroid.y * tf.scale.y);
+
+        for (uint32_t s = 0; s < n; ++s) {
+          verts[vi++] = xform(pts[s].x * tf.scale.x,
+                              pts[s].y * tf.scale.y);
+        }
+
+        for (uint32_t s = 0; s < n; ++s) {
+          indices[ii++] = centreIdx;
+          indices[ii++] = static_cast<uint16_t>(centreIdx + 1 + s);
+          indices[ii++] = static_cast<uint16_t>(centreIdx + 1 + (s + 1) % n);
+        }
+        break;
+      }
+
+      case ShapeType::Box: {
+        float hw2 = sp.size.x * tf.scale.x * 0.5f;
+        float hh2 = sp.size.y * tf.scale.y * 0.5f;
+
+        uint16_t base = static_cast<uint16_t>(vi);
+        verts[vi++] = xform(-hw2, -hh2);
+        verts[vi++] = xform( hw2, -hh2);
+        verts[vi++] = xform( hw2,  hh2);
+        verts[vi++] = xform(-hw2,  hh2);
+
+        indices[ii++] = base + 0;
+        indices[ii++] = base + 1;
+        indices[ii++] = base + 2;
+        indices[ii++] = base + 0;
+        indices[ii++] = base + 2;
+        indices[ii++] = base + 3;
+        break;
+      }
+    }
+  }
+
+  float identity[16];
+  bx::mtxIdentity(identity);
+  bgfx::setTransform(identity);
+
+  bgfx::setVertexBuffer(0, &tvb);
+  bgfx::setIndexBuffer(&tib);
+  bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A |
+                 BGFX_STATE_BLEND_ALPHA | BGFX_STATE_MSAA);
+  bgfx::submit(kViewSprites, m_spriteProgram);
 }
 
 void RendererSystem::render(entt::registry& reg) {
-  glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-  glClear(GL_COLOR_BUFFER_BIT);
+  bgfx::setViewClear(kViewGrid, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH,
+                      0x000000ff, 1.0f, 0);
+  bgfx::setViewRect(kViewGrid, 0, 0, m_window.width(), m_window.height());
+  bgfx::touch(kViewGrid);
 
-  renderGrid();
+  glm::mat4 viewProj{1.0f};
+  renderSprites(reg, viewProj);
 
-  initEntityBuffers(reg);
-
-  m_shader->use();
-
-  float aspect = static_cast<float>(m_window.width()) / static_cast<float>(m_window.height());
-  float worldHeight = 10.0f;
-  float worldWidth  = worldHeight * aspect;
-  glm::mat4 projection = glm::ortho(-worldWidth  / 2.0f, worldWidth  / 2.0f,
-                                     -worldHeight / 2.0f, worldHeight / 2.0f,
-                                     -1.0f, 1.0f);
-  m_shader->setMat4("u_projection", projection);
-
-  auto view = reg.view<TransformComponent, RigidBodyComponent, RenderComponent>();
-  for (auto entity : view) {
-    auto& transform = view.get<TransformComponent>(entity);
-    auto& render    = view.get<RenderComponent>(entity);
-    if (!render.initialized || render.VAO == 0) continue;
-
-    glm::mat4 model = glm::mat4(1.0f);
-    model = glm::translate(model, glm::vec3(transform.pos, 0.0f));
-
-    m_shader->setMat4("u_transform", model);
-    m_shader->setVec3("u_color", glm::vec3(1.0f, 1.0f, 1.0f));
-
-    glBindVertexArray(render.VAO);
-    glLineWidth(1.5f);
-    glDrawArrays(GL_LINE_LOOP, 0, render.vertexCount);
-  }
-
-  glBindVertexArray(0);
+  bgfx::frame();
 }
 
 void RendererSystem::shutdown() {
-  m_shader.reset();
-  m_gridShader.reset();
-  if (m_gridVAO) { glDeleteVertexArrays(1, &m_gridVAO); m_gridVAO = 0; }
-  if (m_gridVBO) { glDeleteBuffers(1, &m_gridVBO); m_gridVBO = 0; }
+  if (bgfx::isValid(m_spriteProgram)) bgfx::destroy(m_spriteProgram);
+
+  bgfx::shutdown();
 }

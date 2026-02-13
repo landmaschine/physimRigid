@@ -1,29 +1,41 @@
-#include "entt/entt.hpp"
 #include "renderer/renderSystem.hpp"
 #include "renderer/window.hpp"
 #include "core/core.hpp"
 #include "Input/input.hpp"
-#include "components/components.hpp"
+#include "ecs/ecs.hpp"
+#include "timer/timer.hpp"
 
-int main(){
-  entt::registry reg;
+#include "physics/systems/inertiaSystem.hpp"
+#include "physics/systems/gravitySystem.hpp"
+#include "physics/systems/collisionDetection.hpp"
+#include "physics/systems/mouseGrab.hpp"
+#include "physics/systems/constraintSolver.hpp"
 
-  Window window(800, 600, "physim");
+int main() {
+  Scene scene;
+  Timer timer;
+
+  Window window(1280, 720, "PhySim");
   RendererSystem renderer(window);
   InputSystem input(window);
 
-  auto tri = reg.create();
-  reg.emplace<TransformComponent>(tri, glm::vec2{-2.0f, 0.0f}, glm::vec2{0.0f, 0.0f});
-  reg.emplace<RigidBodyComponent>(tri, std::make_unique<Triangle>());
-  reg.emplace<RenderComponent>(tri, glm::vec3{0.2f, 0.8f, 0.4f});
+  PhysicsWorld physics;
 
-  auto rect = reg.create();
-  reg.emplace<TransformComponent>(rect, glm::vec2{2.0f, 0.0f}, glm::vec2{0.0f, 0.0f});
-  reg.emplace<RigidBodyComponent>(rect, std::make_unique<Rectangle>());
-  reg.emplace<RenderComponent>(rect, glm::vec3{0.8f, 0.3f, 0.2f});
+  physics.addSystem<InertiaSystem>();
+  physics.addSystem<GravitySystem>(glm::vec2{0.0f, -9.81f});
+  physics.addSystem<MouseGrabSystem>();
+  physics.addSystem<CollisionDetectionSystem>();
+  auto& solver = physics.addSystem<ConstraintSolverSystem>();
+  solver.velocityIterations = 12;
+  solver.positionIterations = 4;
 
-  Core core(reg, window, renderer, input);
+  physics.setFixedTimestep(1.0f / 240.0f);
+
+  Core core(scene, physics, timer, window, renderer, input);
+  core.setFrameRateMode(FrameRateMode::VSync);
+
+  core.loadScript("../../scripts/init.lua");
+
   core.run();
-
   return 0;
 }

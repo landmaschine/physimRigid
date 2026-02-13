@@ -25,8 +25,8 @@ add_subdirectory(third_party/glm)
 
 add_subdirectory(third_party/entt)
 
-add_library(glad STATIC third_party/glad/src/gl.c)
-target_include_directories(glad PUBLIC third_party/glad/include)
+# bgfx / bx / bimg (includes shaderc tool)
+include(cmake/bgfx.cmake)
 
 add_subdirectory(third_party/imgui)
 
@@ -35,6 +35,47 @@ add_subdirectory(third_party/lua)
 add_library(sol2 INTERFACE)
 target_include_directories(sol2 INTERFACE third_party/sol2/include)
 target_link_libraries(sol2 INTERFACE lua)
+
+# ── Compile bgfx shaders ────────────────────────────────────────────────────
+set(SHADER_DIR ${CMAKE_SOURCE_DIR}/engine/shaders)
+set(SHADER_OUTPUT_DIR ${CMAKE_BINARY_DIR}/shaders)
+file(MAKE_DIRECTORY ${SHADER_OUTPUT_DIR})
+
+bgfx_compile_shader(
+  INPUT    ${SHADER_DIR}/vs_basic.sc
+  OUTPUT   ${SHADER_OUTPUT_DIR}/vs_basic.sc.bin.h
+  TYPE     vertex
+  PROFILE  spirv
+  VARYINGDEF ${SHADER_DIR}/varying.def.sc
+)
+bgfx_compile_shader(
+  INPUT    ${SHADER_DIR}/fs_basic.sc
+  OUTPUT   ${SHADER_OUTPUT_DIR}/fs_basic.sc.bin.h
+  TYPE     fragment
+  PROFILE  spirv
+  VARYINGDEF ${SHADER_DIR}/varying.def.sc
+)
+bgfx_compile_shader(
+  INPUT    ${SHADER_DIR}/vs_grid.sc
+  OUTPUT   ${SHADER_OUTPUT_DIR}/vs_grid.sc.bin.h
+  TYPE     vertex
+  PROFILE  spirv
+  VARYINGDEF ${SHADER_DIR}/varying.def.sc
+)
+bgfx_compile_shader(
+  INPUT    ${SHADER_DIR}/fs_grid.sc
+  OUTPUT   ${SHADER_OUTPUT_DIR}/fs_grid.sc.bin.h
+  TYPE     fragment
+  PROFILE  spirv
+  VARYINGDEF ${SHADER_DIR}/varying.def.sc
+)
+
+add_custom_target(compiled_shaders DEPENDS
+  ${SHADER_OUTPUT_DIR}/vs_basic.sc.bin.h
+  ${SHADER_OUTPUT_DIR}/fs_basic.sc.bin.h
+  ${SHADER_OUTPUT_DIR}/vs_grid.sc.bin.h
+  ${SHADER_OUTPUT_DIR}/fs_grid.sc.bin.h
+)
 
 add_subdirectory(engine)
 add_subdirectory(app)
