@@ -72,28 +72,26 @@ struct BroadphaseEntry {
 
 using BroadphasePair = std::pair<entt::entity, entt::entity>;
 
-inline std::vector<BroadphasePair>
-sortAndSweep(std::vector<BroadphaseEntry>& entries) {
+inline void
+sortAndSweep(std::vector<BroadphaseEntry>& entries,
+             std::vector<BroadphasePair>& pairs) {
   std::sort(entries.begin(), entries.end(),
     [](const BroadphaseEntry& a, const BroadphaseEntry& b) {
       return a.aabb.min.x < b.aabb.min.x;
     });
 
-  std::vector<BroadphasePair> pairs;
-  pairs.reserve(entries.size());  
+  pairs.clear();
+  pairs.reserve(entries.size());
 
   for (size_t i = 0; i < entries.size(); ++i) {
     for (size_t j = i + 1; j < entries.size(); ++j) {
       if (entries[j].aabb.min.x > entries[i].aabb.max.x)
         break;
 
-      // Check y-axis overlap
       if (entries[i].aabb.min.y <= entries[j].aabb.max.y &&
           entries[i].aabb.max.y >= entries[j].aabb.min.y) {
         pairs.emplace_back(entries[i].entity, entries[j].entity);
       }
     }
   }
-
-  return pairs;
 }

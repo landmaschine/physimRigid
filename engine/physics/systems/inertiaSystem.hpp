@@ -11,8 +11,11 @@ public:
     }
   }
 
-  void fixedUpdate(entt::registry&, float) override {
-
+  void fixedUpdate(entt::registry& reg, float) override {
+    auto view = reg.view<RigidBody2D>();
+    for (auto [entity, rb] : view.each()) {
+      syncBodyMass(rb);
+    }
   }
 
   const char* name() const override { return "Inertia"; }

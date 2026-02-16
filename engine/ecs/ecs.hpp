@@ -14,7 +14,6 @@ public:
   ~Scene() = default;
   
   Entity createEntity();
-  void onUpdate(float dt);
 
   entt::registry& getRegistry() { return m_registry; }
   const entt::registry& getRegistry() const { return m_registry; }

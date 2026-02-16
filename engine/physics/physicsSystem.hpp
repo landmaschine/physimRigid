@@ -29,6 +29,17 @@ public:
     return ref;
   }
 
+  template<typename T>
+  T* getSystem() {
+    for (auto& s : m_systems) {
+      T* p = dynamic_cast<T*>(s.get());
+      if (p) return p;
+    }
+    return nullptr;
+  }
+
+  const std::vector<std::unique_ptr<PhysicsSystem>>& systems() const { return m_systems; }
+
   void init(entt::registry& reg);
   void update(entt::registry& reg, float dt);
 

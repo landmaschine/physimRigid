@@ -31,7 +31,6 @@ private:
   Window& m_window;
   bool m_prevDown = false;
 
-  // per-frame key state tracking
   std::unordered_map<int, bool> m_keyState;
   std::unordered_map<int, bool> m_prevKeyState;
 };

@@ -70,11 +70,28 @@ bgfx_compile_shader(
   VARYINGDEF ${SHADER_DIR}/varying.def.sc
 )
 
+bgfx_compile_shader(
+  INPUT    ${SHADER_DIR}/vs_imgui.sc
+  OUTPUT   ${SHADER_OUTPUT_DIR}/vs_imgui.sc.bin.h
+  TYPE     vertex
+  PROFILE  spirv
+  VARYINGDEF ${SHADER_DIR}/varying_imgui.def.sc
+)
+bgfx_compile_shader(
+  INPUT    ${SHADER_DIR}/fs_imgui.sc
+  OUTPUT   ${SHADER_OUTPUT_DIR}/fs_imgui.sc.bin.h
+  TYPE     fragment
+  PROFILE  spirv
+  VARYINGDEF ${SHADER_DIR}/varying_imgui.def.sc
+)
+
 add_custom_target(compiled_shaders DEPENDS
   ${SHADER_OUTPUT_DIR}/vs_basic.sc.bin.h
   ${SHADER_OUTPUT_DIR}/fs_basic.sc.bin.h
   ${SHADER_OUTPUT_DIR}/vs_grid.sc.bin.h
   ${SHADER_OUTPUT_DIR}/fs_grid.sc.bin.h
+  ${SHADER_OUTPUT_DIR}/vs_imgui.sc.bin.h
+  ${SHADER_OUTPUT_DIR}/fs_imgui.sc.bin.h
 )
 
 add_subdirectory(engine)

@@ -4,6 +4,7 @@
 #include "components/components.hpp"
 #include "renderer/window.hpp"
 #include "renderer/renderSystem.hpp"
+#include "renderer/cameraState.hpp"
 #include "Input/input.hpp"
 #include "timer/timer.hpp"
 #include "logger/logger.hpp"
@@ -81,38 +82,35 @@ void Core::run() {
     {
       float aspect = static_cast<float>(m_window.width()) /
                      static_cast<float>(m_window.height());
-      float orthoSize = 5.0f;
-      glm::vec2 camPos{0.0f};
-      auto camView = reg.view<TransformComponent, CameraComponent>();
-      for (auto e : camView) {
-        auto& cam = camView.get<CameraComponent>(e);
-        if (cam.primary) {
-          orthoSize = cam.orthoSize;
-          camPos    = camView.get<TransformComponent>(e).position;
-          break;
-        }
-      }
-      m_input.worldHalfW = orthoSize * aspect;
-      m_input.worldHalfH = orthoSize;
-      m_input.cameraPos  = camPos;
+      updateCameraState(reg, aspect);
+      auto& cam = reg.ctx().get<CameraState>();
+      m_input.worldHalfW = cam.halfW();
+      m_input.worldHalfH = cam.halfH();
+      m_input.cameraPos  = cam.position;
     }
 
     m_input.processInput(dt);
 
+    if (m_input.isKeyPressed(256))
+      m_running = false;
+
     {
-      auto& reg = m_scene.getRegistry();
-      if (reg.ctx().contains<PointerState>()) {
-        auto& ps = reg.ctx().get<PointerState>();
-        ps.down     = m_input.mouseDown;
-        ps.pressed  = m_input.mousePressed;
-        ps.released = m_input.mouseReleased;
-        ps.worldPos = m_input.mouseWorld;
-      }
+      if (!reg.ctx().contains<PointerState>())
+        reg.ctx().emplace<PointerState>();
+      auto& ps = reg.ctx().get<PointerState>();
+      ps.down     = m_input.mouseDown;
+      ps.pressed  = m_input.mousePressed;
+      ps.released = m_input.mouseReleased;
+      ps.worldPos = m_input.mouseWorld;
     }
 
     m_scriptEngine.callOnUpdate(dt);
 
     m_physicsWorld.update(reg, dt);
+
+    m_renderSystem.imguiBeginFrame(dt);
+    m_debugUI.update(dt, m_physicsWorld, m_scene);
+    m_renderSystem.imguiEndFrame();
 
     m_renderSystem.render(reg);
 

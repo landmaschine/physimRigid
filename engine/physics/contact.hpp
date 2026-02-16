@@ -58,18 +58,25 @@ inline uint64_t contactPairKey(entt::entity a, entt::entity b) {
 class ContactManager {
 public:
   void update(const std::vector<ContactConstraint>& newContacts) {
-    std::unordered_map<uint64_t, ContactConstraint> newMap;
-    newMap.reserve(newContacts.size());
-
-    for (auto nc : newContacts) { 
-      uint64_t key = contactPairKey(nc.bodyA, nc.bodyB);
-      auto it = m_contacts.find(key);
-      if (it != m_contacts.end()) {
-        warmMatch(nc, it->second);
-      }
-      newMap.emplace(key, nc);
+    m_oldLookup.clear();
+    m_oldLookup.reserve(m_contacts.size());
+    for (size_t i = 0; i < m_contacts.size(); ++i) {
+      uint64_t key = contactPairKey(m_contacts[i].bodyA, m_contacts[i].bodyB);
+      m_oldLookup[key] = i;
     }
-    m_contacts = std::move(newMap);
+
+    m_staging.clear();
+    m_staging.reserve(newContacts.size());
+
+    for (const auto& nc : newContacts) {
+      m_staging.push_back(nc);
+      uint64_t key = contactPairKey(nc.bodyA, nc.bodyB);
+      auto it = m_oldLookup.find(key);
+      if (it != m_oldLookup.end()) {
+        warmMatch(m_staging.back(), m_contacts[it->second]);
+      }
+    }
+    std::swap(m_contacts, m_staging);
   }
 
   auto begin()       { return m_contacts.begin(); }
@@ -78,6 +85,9 @@ public:
   auto end()   const { return m_contacts.end();   }
   size_t size() const { return m_contacts.size(); }
   bool empty()  const { return m_contacts.empty();}
+
+  ContactConstraint& operator[](size_t i) { return m_contacts[i]; }
+  const ContactConstraint& operator[](size_t i) const { return m_contacts[i]; }
 
   void clear() { m_contacts.clear(); }
 
@@ -94,5 +104,7 @@ private:
     }
   }
 
-  std::unordered_map<uint64_t, ContactConstraint> m_contacts;
+  std::vector<ContactConstraint> m_contacts;
+  std::vector<ContactConstraint> m_staging;
+  std::unordered_map<uint64_t, size_t> m_oldLookup;
 };

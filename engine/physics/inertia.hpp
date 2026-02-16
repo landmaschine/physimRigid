@@ -6,9 +6,10 @@
 inline void computeBodyInertia(entt::registry& reg, entt::entity e) {
   if (!reg.all_of<RigidBody2D>(e)) return;
   auto& rb = reg.get<RigidBody2D>(e);
-  if (rb.isStatic) {
+  if (!isDynamic(rb)) {
     rb.inertia    = 0.0f;
     rb.invInertia = 0.0f;
+    syncBodyMass(rb);
     return;
   }
 
@@ -53,6 +54,6 @@ inline void computeBodyInertia(entt::registry& reg, entt::entity e) {
     }
   }
 
-  rb.inertia    = I;
-  rb.invInertia = I > 0.0f ? 1.0f / I : 0.0f;
+  rb.inertia = I;
+  syncBodyMass(rb);  
 }

@@ -23,11 +23,13 @@ int main() {
 
   physics.addSystem<InertiaSystem>();
   physics.addSystem<GravitySystem>(glm::vec2{0.0f, -9.81f});
-  physics.addSystem<MouseGrabSystem>();
+  auto& grab   = physics.addSystem<MouseGrabSystem>();
   physics.addSystem<CollisionDetectionSystem>();
   auto& solver = physics.addSystem<ConstraintSolverSystem>();
   solver.velocityIterations = 12;
   solver.positionIterations = 4;
+
+  grab.registerWithSolver(solver);
 
   physics.setFixedTimestep(1.0f / 240.0f);
 

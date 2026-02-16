@@ -1,12 +1,15 @@
 #pragma once
 #include "../physicsSystem.hpp"
 #include "../contact.hpp"
-#include "mouseGrab.hpp"
 #include "components/transform.hpp"
 #include "components/physics_components.hpp"
 #include <glm/glm.hpp>
 #include <cmath>
 #include <algorithm>
+#include <functional>
+#include <vector>
+
+using VelocityConstraintFn = std::function<void(entt::registry&)>;
 
 class ConstraintSolverSystem : public PhysicsSystem {
 public:
@@ -17,52 +20,76 @@ public:
   float maxPositionCorrection = 0.2f; 
   float restitutionThreshold  = 1.0f; 
 
+  void addVelocityConstraint(VelocityConstraintFn fn) {
+    m_velocityConstraints.push_back(std::move(fn));
+  }
+
+  void clearVelocityConstraints() {
+    m_velocityConstraints.clear();
+  }
+
   void fixedUpdate(entt::registry& reg, float dt) override {
     if (!reg.ctx().contains<ContactManager>()) return;
     auto& cm = reg.ctx().get<ContactManager>();
 
-    MouseGrabState* grab = nullptr;
-    if (reg.ctx().contains<MouseGrabState>()) {
-      auto& ms = reg.ctx().get<MouseGrabState>();
-      if (ms.active && reg.valid(ms.grabbed))
-        grab = &ms;
-    }
-
     integrateVelocities(reg, dt);
 
-    if (cm.empty() && !grab) {
+    if (cm.empty() && m_velocityConstraints.empty()) {
       integratePositions(reg, dt);
-      clearForces(reg);
+      clearBodyForces(reg);
       return;
     }
 
-    for (auto& [key, cc] : cm)
-      preStep(reg, cc, dt);
+    m_solverContacts.clear();
+    m_solverContacts.reserve(cm.size());
+    for (auto& cc : cm) {
+      m_solverContacts.push_back({
+        &cc,
+        &reg.get<TransformComponent>(cc.bodyA),
+        &reg.get<RigidBody2D>(cc.bodyA),
+        &reg.get<TransformComponent>(cc.bodyB),
+        &reg.get<RigidBody2D>(cc.bodyB)
+      });
+    }
 
-    for (auto& [key, cc] : cm)
-      warmStart(reg, cc);
+    for (auto& sc : m_solverContacts)
+      preStep(sc, dt);
+
+    for (auto& sc : m_solverContacts)
+      warmStart(sc);
 
     for (int i = 0; i < velocityIterations; ++i) {
-      if (grab)
-        MouseGrabSystem::solveGrabStep(reg, *grab);
+      for (auto& fn : m_velocityConstraints)
+        fn(reg);
 
-      for (auto& [key, cc] : cm)
-        solveVelocity(reg, cc);
+      for (auto& sc : m_solverContacts)
+        solveVelocity(sc);
     }
 
     integratePositions(reg, dt);
 
     for (int i = 0; i < positionIterations; ++i) {
-      for (auto& [key, cc] : cm)
-        solvePosition(reg, cc);
+      for (auto& sc : m_solverContacts)
+        solvePosition(sc);
     }
 
-    clearForces(reg);
+    clearBodyForces(reg);
   }
 
   const char* name() const override { return "ConstraintSolver"; }
 
 private:
+  struct SolverContact {
+    ContactConstraint*  cc;
+    TransformComponent* xfA;
+    RigidBody2D*        rbA;
+    TransformComponent* xfB;
+    RigidBody2D*        rbB;
+  };
+
+  std::vector<SolverContact>      m_solverContacts;
+  std::vector<VelocityConstraintFn> m_velocityConstraints;
+
   static float cross2(const glm::vec2& a, const glm::vec2& b) {
     return a.x * b.y - a.y * b.x;
   }
@@ -73,7 +100,7 @@ private:
   void integrateVelocities(entt::registry& reg, float dt) {
     auto view = reg.view<RigidBody2D>();
     for (auto [entity, rb] : view.each()) {
-      if (rb.isStatic) continue;
+      if (!isDynamic(rb)) continue;
 
       rb.velocity += (rb.force * rb.invMass) * dt;
 
@@ -91,23 +118,29 @@ private:
   void integratePositions(entt::registry& reg, float dt) {
     auto view = reg.view<RigidBody2D, TransformComponent>();
     for (auto [entity, rb, xf] : view.each()) {
-      if (rb.isStatic) continue;
+      if (isStatic(rb)) continue;
+
       xf.position += rb.velocity * dt;
       xf.rotation += rb.angularVelocity * dt;
+
+      constexpr float TWO_PI = 2.0f * 3.14159265f;
+      if (xf.rotation > 3.14159265f)       xf.rotation -= TWO_PI;
+      else if (xf.rotation < -3.14159265f) xf.rotation += TWO_PI;
     }
   }
 
-  void clearForces(entt::registry& reg) {
+  void clearBodyForces(entt::registry& reg) {
     auto view = reg.view<RigidBody2D>();
     for (auto [entity, rb] : view.each())
-      rb.clearForces();
+      clearForces(rb);
   }
 
-  void preStep(entt::registry& reg, ContactConstraint& cc, float dt) {
-    auto& xfA = reg.get<TransformComponent>(cc.bodyA);
-    auto& rbA = reg.get<RigidBody2D>(cc.bodyA);
-    auto& xfB = reg.get<TransformComponent>(cc.bodyB);
-    auto& rbB = reg.get<RigidBody2D>(cc.bodyB);
+  void preStep(SolverContact& sc, float dt) {
+    auto& xfA = *sc.xfA;
+    auto& rbA = *sc.rbA;
+    auto& xfB = *sc.xfB;
+    auto& rbB = *sc.rbB;
+    auto& cc  = *sc.cc;
 
     for (int i = 0; i < cc.pointCount; ++i) {
       auto& pt = cc.points[i];
@@ -140,9 +173,10 @@ private:
     }
   }
 
-  void warmStart(entt::registry& reg, ContactConstraint& cc) {
-    auto& rbA = reg.get<RigidBody2D>(cc.bodyA);
-    auto& rbB = reg.get<RigidBody2D>(cc.bodyB);
+  void warmStart(SolverContact& sc) {
+    auto& rbA = *sc.rbA;
+    auto& rbB = *sc.rbB;
+    auto& cc  = *sc.cc;
 
     glm::vec2 tangent = { -cc.normal.y, cc.normal.x };
 
@@ -158,11 +192,10 @@ private:
     }
   }
 
-  void solveVelocity(entt::registry& reg, ContactConstraint& cc) {
-    auto& xfA = reg.get<TransformComponent>(cc.bodyA);
-    auto& rbA = reg.get<RigidBody2D>(cc.bodyA);
-    auto& xfB = reg.get<TransformComponent>(cc.bodyB);
-    auto& rbB = reg.get<RigidBody2D>(cc.bodyB);
+  void solveVelocity(SolverContact& sc) {
+    auto& rbA = *sc.rbA;
+    auto& rbB = *sc.rbB;
+    auto& cc  = *sc.cc;
 
     glm::vec2 tangent = { -cc.normal.y, cc.normal.x };
 
@@ -209,11 +242,12 @@ private:
     }
   }
 
-  void solvePosition(entt::registry& reg, ContactConstraint& cc) {
-    auto& xfA = reg.get<TransformComponent>(cc.bodyA);
-    auto& rbA = reg.get<RigidBody2D>(cc.bodyA);
-    auto& xfB = reg.get<TransformComponent>(cc.bodyB);
-    auto& rbB = reg.get<RigidBody2D>(cc.bodyB);
+  void solvePosition(SolverContact& sc) {
+    auto& xfA = *sc.xfA;
+    auto& rbA = *sc.rbA;
+    auto& xfB = *sc.xfB;
+    auto& rbB = *sc.rbB;
+    auto& cc  = *sc.cc;
 
     for (int i = 0; i < cc.pointCount; ++i) {
       auto& pt = cc.points[i];

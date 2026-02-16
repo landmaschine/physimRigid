@@ -1,6 +1,7 @@
 #pragma once
 #include "../physicsSystem.hpp"
 #include "../pointerState.hpp"
+#include "constraintSolver.hpp"
 #include "components/transform.hpp"
 #include "components/physics_components.hpp"
 #include <glm/glm.hpp>
@@ -33,6 +34,15 @@ public:
       reg.ctx().emplace<PointerState>();
     if (!reg.ctx().contains<MouseGrabState>())
       reg.ctx().emplace<MouseGrabState>();
+  }
+
+  void registerWithSolver(ConstraintSolverSystem& solver) {
+    solver.addVelocityConstraint([](entt::registry& reg) {
+      if (!reg.ctx().contains<MouseGrabState>()) return;
+      auto& ms = reg.ctx().get<MouseGrabState>();
+      if (!ms.active || !reg.valid(ms.grabbed)) return;
+      solveGrabStep(reg, ms);
+    });
   }
 
   void fixedUpdate(entt::registry& reg, float fixedDt) override {
@@ -90,7 +100,7 @@ private:
 
     auto view = reg.view<TransformComponent, RigidBody2D>();
     for (auto [e, xf, rb] : view.each()) {
-      if (rb.isStatic) continue;
+      if (!isDynamic(rb)) continue;
 
       glm::vec2 diff = ps.worldPos - xf.position;
       float d2 = glm::dot(diff, diff);

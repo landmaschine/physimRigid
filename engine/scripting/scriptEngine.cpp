@@ -4,6 +4,7 @@
 #include "components/components.hpp"
 #include "Input/input.hpp"
 #include "physics/inertia.hpp"
+#include "physics/collisionEvents.hpp"
 #include "logger/logger.hpp"
 
 #include <glm/glm.hpp>
@@ -130,24 +131,46 @@ void ScriptEngine::bindComponents() {
     "primary",    &CameraComponent::primary
   );
 
-  // ── physics ──────────────────────────────────────────
+  
+  m_lua.new_enum("BodyType",
+    "Static",    BodyType::Static,
+    "Kinematic", BodyType::Kinematic,
+    "Dynamic",   BodyType::Dynamic
+  );
+
+  m_lua.new_usertype<CollisionFilter>("CollisionFilter",
+    "category_bits", &CollisionFilter::categoryBits,
+    "mask_bits",     &CollisionFilter::maskBits,
+    "group_index",   &CollisionFilter::groupIndex
+  );
+
   m_lua.new_usertype<RigidBody2D>("RigidBody2D",
     "velocity",         &RigidBody2D::velocity,
-    "acceleration",     &RigidBody2D::acceleration,
     "force",            &RigidBody2D::force,
     "mass", sol::property(
       [](const RigidBody2D& rb) { return rb.mass; },
-      [](RigidBody2D& rb, float m) { rb.setMass(m); }
+      [](RigidBody2D& rb, float m) { setBodyMass(rb, m); }
     ),
     "restitution",      &RigidBody2D::restitution,
     "friction",         &RigidBody2D::friction,
     "angular_velocity", &RigidBody2D::angularVelocity,
     "torque",           &RigidBody2D::torque,
-    "is_static", sol::property(
-      [](const RigidBody2D& rb) { return rb.isStatic; },
-      [](RigidBody2D& rb, bool s) { rb.setStatic(s); }
+    "body_type", sol::property(
+      [](const RigidBody2D& rb) { return rb.type; },
+      [](RigidBody2D& rb, BodyType t) { setBodyType(rb, t); }
     ),
-    "add_force", &RigidBody2D::addForce
+    "is_static", sol::property(
+      [](const RigidBody2D& rb) { return isStatic(rb); },
+      [](RigidBody2D& rb, bool s) { setBodyStatic(rb, s); }
+    ),
+    "fixed_rotation", &RigidBody2D::fixedRotation,
+    "filter", &RigidBody2D::filter,
+    "add_force", [](RigidBody2D& rb, float fx, float fy) {
+      addForce(rb, {fx, fy});
+    },
+    "add_torque", [](RigidBody2D& rb, float t) {
+      addTorque(rb, t);
+    }
   );
 
   m_lua.new_usertype<CircleCollider>("CircleCollider",
@@ -241,12 +264,17 @@ void ScriptEngine::bindECS() {
       if (!e.hasComponent<RigidBody2D>())
         e.addComponent<RigidBody2D>();
       auto& rb = e.getComponent<RigidBody2D>();
-      if (t["mass"].valid())        rb.setMass(t["mass"]);
+      if (t["mass"].valid())        setBodyMass(rb, t["mass"]);
       if (t["restitution"].valid()) rb.restitution = t["restitution"];
       if (t["friction"].valid())    rb.friction    = t["friction"];
-      if (t["is_static"].valid())   rb.setStatic(t["is_static"].get<bool>());
+      if (t["is_static"].valid())   setBodyStatic(rb, t["is_static"].get<bool>());
+      if (t["body_type"].valid())   setBodyType(rb, t["body_type"].get<BodyType>());
       if (t["linear_damping"].valid())  rb.linearDamping  = t["linear_damping"];
       if (t["angular_damping"].valid()) rb.angularDamping = t["angular_damping"];
+      if (t["fixed_rotation"].valid())  rb.fixedRotation  = t["fixed_rotation"];
+      if (t["category_bits"].valid())   rb.filter.categoryBits = t["category_bits"];
+      if (t["mask_bits"].valid())       rb.filter.maskBits     = t["mask_bits"];
+      if (t["group_index"].valid())     rb.filter.groupIndex   = t["group_index"];
       computeBodyInertia(m_scene->getRegistry(), static_cast<entt::entity>(e));
     },
 
@@ -295,7 +323,7 @@ void ScriptEngine::bindECS() {
       cv.vertices.clear();
       for (int i = 0; i < sides; ++i) {
         float angle = 2.0f * 3.14159265f * static_cast<float>(i) / static_cast<float>(sides)
-                    - 3.14159265f / 2.0f; // point up
+                    - 3.14159265f / 2.0f; 
         cv.vertices.push_back({radius * std::cos(angle), radius * std::sin(angle)});
       }
       cv.ensureCCW();
@@ -321,7 +349,19 @@ void ScriptEngine::bindECS() {
     },
     "apply_force", [](Entity& e, float fx, float fy) {
       if (e.hasComponent<RigidBody2D>())
-        e.getComponent<RigidBody2D>().addForce({fx, fy});
+        addForce(e.getComponent<RigidBody2D>(), {fx, fy});
+    },
+    "apply_force_at_point", [](Entity& e, float fx, float fy,
+                                float px, float py) {
+      if (e.hasComponent<RigidBody2D>() && e.hasComponent<TransformComponent>()) {
+        auto& rb = e.getComponent<RigidBody2D>();
+        auto& xf = e.getComponent<TransformComponent>();
+        addForceAtPoint(rb, {fx, fy}, {px, py}, xf.position);
+      }
+    },
+    "apply_torque", [](Entity& e, float t) {
+      if (e.hasComponent<RigidBody2D>())
+        addTorque(e.getComponent<RigidBody2D>(), t);
     }
   );
 
@@ -348,6 +388,40 @@ void ScriptEngine::bindECS() {
 
     "destroy", [](Scene& s, Entity& e) {
       s.getRegistry().destroy(static_cast<entt::entity>(e));
+    },
+
+    
+    "get_begin_contacts", [this](Scene& s) -> sol::table {
+      auto& reg = s.getRegistry();
+      sol::table result = m_lua.create_table();
+      if (!reg.ctx().contains<CollisionEvents>()) return result;
+      auto& events = reg.ctx().get<CollisionEvents>();
+      int i = 1;
+      for (auto& e : events.beginContacts) {
+        sol::table entry = m_lua.create_table();
+        entry["entity_a"] = Entity(e.entityA, &s);
+        entry["entity_b"] = Entity(e.entityB, &s);
+        entry["normal"]   = e.normal;
+        entry["point"]    = e.contactPoint;
+        entry["depth"]    = e.penetration;
+        result[i++] = entry;
+      }
+      return result;
+    },
+
+    "get_end_contacts", [this](Scene& s) -> sol::table {
+      auto& reg = s.getRegistry();
+      sol::table result = m_lua.create_table();
+      if (!reg.ctx().contains<CollisionEvents>()) return result;
+      auto& events = reg.ctx().get<CollisionEvents>();
+      int i = 1;
+      for (auto& e : events.endContacts) {
+        sol::table entry = m_lua.create_table();
+        entry["entity_a"] = Entity(e.entityA, &s);
+        entry["entity_b"] = Entity(e.entityB, &s);
+        result[i++] = entry;
+      }
+      return result;
     }
   );
 }

@@ -13,6 +13,10 @@ public:
 
   void render(entt::registry& reg);
 
+  void imguiBeginFrame(float dt);
+
+  void imguiEndFrame();
+
 private:
   void init();
   void shutdown();

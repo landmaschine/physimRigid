@@ -11,8 +11,8 @@ public:
   void fixedUpdate(entt::registry& reg, float /*fixedDt*/) override {
     auto view = reg.view<RigidBody2D>();
     for (auto [entity, rb] : view.each()) {
-      if (!rb.isStatic)
-        rb.addForce(m_gravity * rb.mass);
+      if (isDynamic(rb))
+        addForce(rb, m_gravity * rb.mass);
     }
   }
 

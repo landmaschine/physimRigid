@@ -3,6 +3,7 @@
 #include "entt/entt.hpp"
 #include "scripting/scriptEngine.hpp"
 #include "physics/physicsSystem.hpp"
+#include "imgui/debugUI.hpp"
 
 class Scene;
 class Window;
@@ -55,4 +56,5 @@ private:
   Window&         m_window;
   RendererSystem& m_renderSystem;
   InputSystem&    m_input;
+  DebugUI         m_debugUI;
 };

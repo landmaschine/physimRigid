@@ -11,7 +11,12 @@
 
 #include "logger/logger.hpp"
 #include "renderer/window.hpp"
+#include "renderer/cameraState.hpp"
 #include "components/components.hpp"
+
+#include <imgui.h>
+#include <imgui_impl_glfw.h>
+#include "imgui/imgui_impl_bgfx.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -82,6 +87,26 @@ void RendererSystem::init() {
   }
   bgfx::setViewClear(kViewGrid, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH,
                       0x000000ff, 1.0f, 0);
+
+  ImGui::CreateContext();
+  ImGuiIO& io = ImGui::GetIO();
+  io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+  io.IniFilename = nullptr;   
+  ImGui::StyleColorsDark();
+
+  ImGui_ImplGlfw_InitForOther(m_window.getHandle(), true);
+
+  ImGuiBgfx::init(255);
+}
+
+void RendererSystem::imguiBeginFrame(float dt) {
+  ImGui_ImplGlfw_NewFrame();
+  ImGui::NewFrame();
+}
+
+void RendererSystem::imguiEndFrame() {
+  ImGui::Render();
+  ImGuiBgfx::renderDrawData(m_window.width(), m_window.height());
 }
 
 
@@ -156,21 +181,15 @@ void RendererSystem::renderSprites(entt::registry& reg,
   float viewMtx[16], projMtx[16];
   bx::mtxIdentity(viewMtx);
 
-  float aspect = static_cast<float>(m_window.width()) /
-                 static_cast<float>(m_window.height());
-
   float orthoSize = 5.0f;
   glm::vec2 camPos{0.0f};
-  {
-    auto camView = reg.view<TransformComponent, CameraComponent>();
-    for (auto e : camView) {
-      auto& cam = camView.get<CameraComponent>(e);
-      if (cam.primary) {
-        orthoSize = cam.orthoSize;
-        camPos    = camView.get<TransformComponent>(e).position;
-        break;
-      }
-    }
+  float aspect = static_cast<float>(m_window.width()) /
+                 static_cast<float>(m_window.height());
+  if (reg.ctx().contains<CameraState>()) {
+    auto& cam = reg.ctx().get<CameraState>();
+    orthoSize = cam.orthoSize;
+    camPos    = cam.position;
+    aspect    = cam.aspect;
   }
   float hw = orthoSize * aspect;
   float hh = orthoSize;
@@ -309,6 +328,10 @@ void RendererSystem::render(entt::registry& reg) {
 }
 
 void RendererSystem::shutdown() {
+  ImGuiBgfx::shutdown();
+  ImGui_ImplGlfw_Shutdown();
+  ImGui::DestroyContext();
+
   if (bgfx::isValid(m_spriteProgram)) bgfx::destroy(m_spriteProgram);
 
   bgfx::shutdown();

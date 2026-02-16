@@ -43,10 +43,6 @@ void InputSystem::processInput(float /*dt*/) {
     m_keyState[key] = glfwGetKey(win, key) == GLFW_PRESS;
   }
 
-  if (isKeyPressed(GLFW_KEY_ESCAPE)) {
-    glfwSetWindowShouldClose(win, true);
-  }
-
   double mx, my;
   glfwGetCursorPos(win, &mx, &my);
 
